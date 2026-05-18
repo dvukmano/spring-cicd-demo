@@ -11,6 +11,11 @@ concurrency:
   cancel-in-progress: false   # NE otkazuj deploy u tijeku
 
 env:
+  # Stopgap dok oracle-actions/{login-ocir, configure-kubectl-oke} ne objave Node 24 buildove.
+  # GitHub Actions runneri od 2. lipnja 2026. defaultno koriste Node 24; ova zastavica
+  # prisiljava SVE JavaScript akcije na Node 24 — uključujući one koje su još tagged kao Node 20.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
   OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
   OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
   OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
@@ -91,6 +96,7 @@ jobs:
 
       - name: Smoke test
         run: |
+          # 1) Pričekaj da OCI provisiona LB i da mu se pojavi javni IP
           EXT_IP=""
           for i in $(seq 1 30); do
             EXT_IP=$(kubectl get svc sbapp-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
@@ -102,5 +108,20 @@ jobs:
             echo "Load Balancer nije dobio IP u 5 minuta"
             exit 1
           fi
-          echo "Aplikacija je na http://${EXT_IP}:8080/hello/CI"
-          curl --fail --max-time 10 "http://${EXT_IP}:8080/hello/CI"
+
+          # 2) IP je tu, ali pod možda još starta (image pull + Spring Boot ~30-60s).
+          # Retry curl s back-offom dok ne dobije 2xx odgovor. Ovo sprječava 'exit 56'
+          # (TCP connect uspio, ali backend reset jer pod nije Ready).
+          URL="http://${EXT_IP}:8080/hello/CI"
+          echo "Aplikacija će biti na ${URL}"
+          for i in $(seq 1 30); do
+            if curl --fail --silent --max-time 5 "${URL}" > /tmp/resp; then
+              echo "Smoke test OK:"
+              cat /tmp/resp
+              exit 0
+            fi
+            echo "Aplikacija još ne odgovara... (${i}/30)"
+            sleep 10
+          done
+          echo "Aplikacija nije odgovorila u 5 minuta — provjeri 'kubectl describe pod -l app=sbapp'"
+          exit 1
