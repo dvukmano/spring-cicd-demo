@@ -110,7 +110,7 @@ jobs:
           fi
 
           # 2) IP je tu, ali pod možda još starta (image pull + Spring Boot ~30-60s).
-          # Retry curl s back-offom dok ne dobije 2xx odgovor. Ovo sprječava 'exit 56'
+          # Retry curl s back-offom dok ne dobije 2xx odgovor.  Ovo sprječava 'exit 56'
           # (TCP connect uspio, ali backend reset jer pod nije Ready).
           URL="http://${EXT_IP}:8080/hello/CI"
           echo "Aplikacija će biti na ${URL}"
